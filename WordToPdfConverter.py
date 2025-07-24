@@ -17,20 +17,31 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, QObject
 from PyQt6.QtGui import QColor, QFont
 from typing import Type
+from sqlalchemy.orm import Session, DeclarativeMeta
 
+import socket
 import qtawesome as qta
 import os
 import sys
 
 class WordToPdfConverter(QMainWindow):
-    def __init__(self, converter_worker: Type[QObject]):
+    def __init__(
+        self, 
+        converter_worker: Type[QObject],
+        session_factory: Type[Session],
+        workstation_model: Type[DeclarativeMeta],
+    ):
         super().__init__()
         self.converter_worker = converter_worker
+        self.Session = session_factory
+        self.workstation = workstation_model
+
         self.setWindowIcon(qta.icon("fa5s.file-pdf", color="#f44336"))
         self.setWindowTitle("Batch Word to PDF Converter")
         self.setGeometry(100, 100, 700, 600)
         self.passwords = {}  # Store passwords for files
         self.default_password = None
+        self.set_default_output_path = None
         
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -38,7 +49,7 @@ class WordToPdfConverter(QMainWindow):
         self.main_layout.setContentsMargins(20, 20, 20, 20)
         self.main_layout.setSpacing(15)
 
-        # Header
+        # ------------ Header --------------
         header = QLabel("Batch Word to PDF Converter")
         header_font = QFont()
         header_font.setPointSize(18)
@@ -47,7 +58,7 @@ class WordToPdfConverter(QMainWindow):
         header.setStyleSheet("color: #212121;")
         self.main_layout.addWidget(header)
 
-        # Step 1: Add files
+        # ------------ Step 1: Add files -------------
         step1_frame = QFrame()
         step1_frame.setFrameShape(QFrame.Shape.StyledPanel)
         step1_layout = QVBoxLayout(step1_frame)
@@ -75,7 +86,7 @@ class WordToPdfConverter(QMainWindow):
         
         self.main_layout.addWidget(step1_frame)
 
-        # Step 2: Output directory
+        # ------------ Step 2: Output directory -------------
         step2_frame = QFrame()
         step2_frame.setFrameShape(QFrame.Shape.StyledPanel)
         step2_layout = QVBoxLayout(step2_frame)
@@ -106,30 +117,29 @@ class WordToPdfConverter(QMainWindow):
         
         self.main_layout.addWidget(step2_frame)
 
-        # Step 3: Password protection
+        # ---------- Step 3: Password protection ----------
         step3_frame = QFrame()
         step3_frame.setFrameShape(QFrame.Shape.StyledPanel)
         step3_layout = QVBoxLayout(step3_frame)
         step3_layout.setContentsMargins(15, 15, 15, 15)
         step3_layout.setSpacing(10)
         
-        step3_label = QLabel("3. Set default password for protected files (optional)")
+        step3_label = QLabel("3. Set default path for export (optional)")
         step3_label.setStyleSheet("font-weight: bold;")
         step3_layout.addWidget(step3_label)
-        
-        password_layout = QHBoxLayout()
-        self.password_edit = QLineEdit()
-        self.password_edit.setPlaceholderText("Enter default password...")
-        self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.set_password_button = QPushButton("Set Password")
-        self.set_password_button.setIcon(qta.icon("fa5s.key", color="white"))
-        password_layout.addWidget(self.password_edit)
-        password_layout.addWidget(self.set_password_button)
-        step3_layout.addLayout(password_layout)
+
+        default_path_layout = QHBoxLayout()
+        self.default_path_edit = QLineEdit()
+                
+        self.default_path_btn = QPushButton("Set Default Path")
+        self.default_path_btn.setIcon(qta.icon("fa5s.folder", color="white"))
+        default_path_layout.addWidget(self.default_path_edit)
+        default_path_layout.addWidget(self.default_path_btn)
+        step3_layout.addLayout(default_path_layout)
         
         self.main_layout.addWidget(step3_frame)
 
-        # Step 4: Convert
+        # Step 4: ----------- Convert -------------
         step4_frame = QFrame()
         step4_frame.setFrameShape(QFrame.Shape.StyledPanel)
         step4_layout = QVBoxLayout(step4_frame)
@@ -147,7 +157,7 @@ class WordToPdfConverter(QMainWindow):
         
         step4_layout.addWidget(self.convert_button)
 
-        # Progress area
+        # ------------ Progress area -------------
         progress_frame = QFrame()
         progress_layout = QVBoxLayout(progress_frame)
         progress_layout.setContentsMargins(0, 0, 0, 0)
@@ -165,22 +175,132 @@ class WordToPdfConverter(QMainWindow):
         step4_layout.addWidget(progress_frame)
         self.main_layout.addWidget(step4_frame)
 
-        # Status bar
+        # -------- Status bar -----------
         self.statusBar().setObjectName("status-bar-qstatus")
         self.statusBar().showMessage("Ready")
+
+        # ------ INITIALIZE FUNCTION STATE ------
+        self.set_initial_path_for_user()
 
         # --- Connect Signals ---
         self.add_button.clicked.connect(self.add_files)
         self.clear_button.clicked.connect(self.clear_list)
         self.output_dir_button.clicked.connect(self.select_output_folder)
-        self.set_password_button.clicked.connect(self.set_default_password)
+        # self.set_password_button.clicked.connect(self.set_default_password)
+        self.default_path_btn.clicked.connect(self.set_new_initial_path_for_user)
+        
         self.convert_button.clicked.connect(self.start_conversion)
         self.open_destination_loc.clicked.connect(self.open_destination_folder)
 
         self.thread = None
         self.worker = None
-
         self.apply_styles()
+
+    def get_workstation_name(self) -> str:
+        return socket.gethostname()
+    
+    def set_initial_path_for_user(self) -> None:
+        """
+        Trigger this on startup when the users computer is in the database fetch there default path location.
+        """
+        # workstation_name = self.get_workstation_name()
+        session = self.Session()
+        model = self.workstation
+        
+        workstation_instance = self.get_workstation_instance(session=session)
+
+        try:
+            if workstation_instance:
+                for lineedit in (self.default_path_edit, self.output_dir_edit):
+                    lineedit.setText(workstation_instance.default_path)
+
+            else:
+                self.default_path_edit.setPlaceholderText("Copy the path from the select output folder...")
+                # CREATE AN ENTRY IMMEDIETLY HERE IN THE DATABASE WITH DEFAULT_NAME_PATH SET TO AN EMPTY STRING(BECAUSE IT CANNOT BE NULL)
+                new_workstation_model = self.create_model(
+                    model=model,
+                    default_name_path=""
+                )
+
+                session.add(new_workstation_model)
+            
+            session.commit()
+        finally:
+            session.close()
+
+    def get_workstation_instance(self, session: Type[DeclarativeMeta]):
+        workstation_name = self.get_workstation_name()
+        model = self.workstation
+
+        workstation_instance = session.query(model).filter(
+            model.workstation_name == workstation_name
+        ).first()
+        
+        return workstation_instance
+
+    def set_new_initial_path_for_user(self):
+        """
+        This will trigger when the set default path is clicked
+        Note:
+            The self.default_path_edit should not be empty
+        """
+        # output_path_text = self.output_dir_edit.text()
+        default_path_text = self.default_path_edit.text()
+
+        if not default_path_text:
+            QMessageBox.warning(
+                self,
+                "No Default Path Specified",
+                "Please indicate a path on this line."
+            )
+        else:
+            try:
+                session = self.Session()    
+
+                workstation_instance = self.get_workstation_instance(session=session)
+
+                # GET THE DETAILS FIRST THEN PROMPT THE USER IN A QUESTION BOX
+                q = QMessageBox.question(
+                    self,
+                    "Confirm",
+                    "Are you sure you want to change the default path to: '{}'".format(default_path_text)
+                )
+
+                if q == QMessageBox.StandardButton.Yes:
+                    if workstation_instance:
+                        workstation_instance.default_path = default_path_text
+
+                    QMessageBox.information(
+                        self,
+                        "Success",
+                        "Changed to '{}'".format(default_path_text)
+                    )
+
+                    session.commit()
+                else:
+                    QMessageBox.information(
+                        self,
+                        "Cancelled",
+                        "Default path change location has been cancelled"
+                    )
+
+                    return
+                
+            finally:
+                session.close()
+
+    def create_model(
+        self, 
+        model: Type[DeclarativeMeta], 
+        default_name_path: str
+    ):
+        workstation_name = self.get_workstation_name()
+        new_workstation_model = model(
+            workstation_name=workstation_name,
+            default_path=default_name_path
+        )
+
+        return new_workstation_model
 
     def apply_styles(self):
         try:
@@ -223,14 +343,6 @@ class WordToPdfConverter(QMainWindow):
         if folder_path:
             self.output_dir_edit.setText(folder_path)
 
-    def set_default_password(self):
-        password = self.password_edit.text()
-        self.default_password = password if password else None
-        self.statusBar().showMessage(
-            "Default password set." if password else "Default password cleared.", 
-            3000
-        )
-
     def start_conversion(self):
         paths_to_process = [self.file_list_widget.item(i).text() for i in range(self.file_list_widget.count())]
         output_dir = self.output_dir_edit.text()
@@ -241,7 +353,10 @@ class WordToPdfConverter(QMainWindow):
         self.set_ui_for_processing(True)
 
         self.thread = QThread()
-        self.worker = self.converter_worker(paths_to_process, output_dir, self.default_password)
+        self.worker = self.converter_worker(
+            paths_to_process, 
+            output_dir, self.default_password
+        )
         self.worker.moveToThread(self.thread)
 
         # Connect all signals
@@ -322,8 +437,8 @@ class WordToPdfConverter(QMainWindow):
         self.convert_button.setEnabled(not processing)
         self.output_dir_button.setEnabled(not processing)
         self.file_list_widget.setEnabled(not processing)
-        self.set_password_button.setEnabled(not processing)
-        self.password_edit.setEnabled(not processing)
+        # self.set_password_button.setEnabled(not processing)
+        # self.password_edit.setEnabled(not processing)
 
     def on_file_finished(self, index: int, message: str, success: bool):
         item = self.file_list_widget.item(index)
