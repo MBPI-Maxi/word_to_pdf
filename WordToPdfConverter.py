@@ -196,6 +196,13 @@ class WordToPdfConverter(QMainWindow):
         self.worker = None
         self.apply_styles()
 
+    @staticmethod
+    def apply_button_cursor(button: Type[QPushButton]) -> None:
+        if not isinstance(button, QPushButton):
+            raise ValueError("Developer error Traceback: FN(apply_button_cursor)")
+
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+
     def get_workstation_name(self) -> str:
         return socket.gethostname()
     
@@ -312,7 +319,12 @@ class WordToPdfConverter(QMainWindow):
                 base_path = os.getcwd()
 
             qss_path = os.path.join(base_path, "styles.css")
-
+            self.apply_button_cursor(self.add_button)
+            self.apply_button_cursor(self.clear_button)
+            self.apply_button_cursor(self.output_dir_button)
+            self.apply_button_cursor(self.open_destination_loc)
+            self.apply_button_cursor(self.default_path_btn)
+            
             with open(qss_path, "r") as f:
                 self.setStyleSheet(f.read())
         except FileNotFoundError:
@@ -426,10 +438,13 @@ class WordToPdfConverter(QMainWindow):
         has_items = self.file_list_widget.count() > 0
         self.convert_button.setEnabled(has_items)
         self.clear_button.setEnabled(has_items)
+        
         if not has_items:
             self.current_file_label.setText("Ready to start.")
             self.progress_bar.setValue(0)
             self.statusBar().showMessage("Ready")
+        elif has_items:
+            self.apply_button_cursor(self.convert_button)
 
     def set_ui_for_processing(self, processing: bool):
         self.add_button.setEnabled(not processing)
@@ -442,6 +457,7 @@ class WordToPdfConverter(QMainWindow):
 
     def on_file_finished(self, index: int, message: str, success: bool):
         item = self.file_list_widget.item(index)
+        
         if item:
             original_text = item.text().split(" --- ")[0]
             item.setText(f"{original_text} --- {message}")
@@ -463,6 +479,7 @@ class WordToPdfConverter(QMainWindow):
     def reset_list_visuals(self):
         for i in range(self.file_list_widget.count()):
             item = self.file_list_widget.item(i)
+            
             if item:
                 original_path = item.text().split(" --- ")[0]
                 item.setText(original_path)

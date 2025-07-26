@@ -73,9 +73,9 @@ QPushButton#convert-btn {
     padding: 10px;
 }
 
-QPushButton#convert-btn:hover {
+/* QPushButton#convert-btn:hover {
     background-color: #388e3c;
-}
+} */
 
 #status-bar-qstatus {
     background-color: #e0e0e0;

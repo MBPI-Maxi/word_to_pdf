@@ -5,7 +5,10 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[("styles.css", ".")],
+    datas=[
+        ("styles.css", "."),
+        (".env", ".")
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
